@@ -1,0 +1,128 @@
+SELECT distinct  
+    order_number,
+    party_name,
+    ship_to_address,
+    subtotal,
+    tax,
+    total,
+    SUM(unit_amount)    OVER(PARTITION BY order_number) linefreightcost,
+  LISTAGG(  name, ',' ON OVERFLOW TRUNCATE) over (partition by order_number) DeliveryNumbers,
+  count(distinct tracking_number) over (partition by order_number) count,
+    ship_method_meaning,
+    shippedquantity,
+    creationdate,
+    released_status
+FROM
+    (
+        SELECT
+            oeh.order_number,
+            hp_bill.party_name,
+            hl_ship.address1
+            || decode(hl_ship.address2,
+                      NULL,
+                      '',
+                      CHR(10))
+            || hl_ship.address2
+            || decode(hl_ship.address3,
+                      NULL,
+                      '',
+                      CHR(10))
+            || hl_ship.address3
+            || decode(hl_ship.address4,
+                      NULL,
+                      ' ',
+                      CHR(10))
+            || hl_ship.address4
+            || decode(hl_ship.city,
+                      NULL,
+                      '',
+                      CHR(10))
+            || hl_ship.city
+            || decode(hl_ship.state, NULL, '', ',')
+            || hl_ship.state
+            || decode(hl_ship.postal_code, '', ',')
+            || hl_ship.postal_code              ship_to_address,
+/*    , hl_bill.address1 ||Decode(hl_bill.address2,NULL,'',chr(10))
+      ||hl_bill.address2||Decode(hl_bill.address3,NULL,'',chr(10))
+      ||hl_bill.address3||Decode(hl_bill.address4,NULL,'',chr(10))
+      ||hl_bill.address4||Decode(hl_bill.city,NULL,'',chr(10))
+      ||hl_bill.city    ||Decode(hl_bill.state,NULL,'',',')
+      ||hl_bill.state   ||Decode(hl_bill.postal_code,'',',')
+      ||hl_bill.postal_code bill_to_address,*/
+--      hcs_ship.site_use_id ship_to_location
+--, hcs_bill.site_use_id bill_to_location,
+            nvl(oe_totals_grp.get_order_total(oeh.header_id, NULL, 'LINES'),
+                0)                              subtotal,
+            nvl(oe_totals_grp.get_order_total(oeh.header_id, NULL, 'TAXES'),
+                0)                              tax,
+            nvl(oe_totals_grp.get_order_total(oeh.header_id, NULL, 'ALL'),
+                0)                              total,
+            wfc.unit_amount,
+            wnd.name,
+            ROW_NUMBER()
+            OVER(PARTITION BY oeh.order_number, wnd.name
+                 ORDER BY
+                     wnd.name
+            )                                   deliverylinenumber,
+   -- LISTAGG(distinct wdd.tracking_number, ',' ON OVERFLOW TRUNCATE) over (partition by oeh.order_number) TrackingNumbers,
+   wdd.tracking_number,
+            wcs.ship_method_meaning,
+--   oel.line_number,
+--   oel.ordered_quantity*oel.unit_selling_price LineAmount,
+--LISTAGG( distinct wnd.name, ',' ON OVERFLOW TRUNCATE) over (partition by oeh.order_number) DeliveryNumbers,
+--   wnd.name                delivery_name,
+--   msi.segment1          item_number,
+--   msi.description       item_description,
+--    mp.organization_code,
+  --  oel.ordered_quantity,
+            LISTAGG(wdd.shipped_quantity, ',' ON OVERFLOW TRUNCATE)
+            OVER(PARTITION BY oeh.order_number) shippedquantity,
+            oeh.creation_date creationdate,
+--   wdd.shipped_quantity,
+--    wdd.date_scheduled ScheduleDeliveryDate,
+            wdd.released_status
+        FROM
+            wsh_delivery_details     wdd,
+            wsh_new_deliveries       wnd,
+            wsh_delivery_assignments wda,
+            oe_order_headers_all     oeh,
+            oe_order_lines_all       oel,
+            mtl_system_items_b       msi,
+            mtl_parameters           mp,
+            hz_cust_site_uses_all    hcs_ship,
+            hz_cust_acct_sites_all   hca_ship,
+            hz_party_sites           hps_ship,
+            hz_parties               hp_ship,
+            hz_locations             hl_ship,
+            hz_cust_site_uses_all    hcs_bill,
+            hz_cust_acct_sites_all   hca_bill,
+            hz_party_sites           hps_bill,
+            hz_parties               hp_bill,
+            hz_locations             hl_bill,
+            wsh.wsh_carrier_services wcs,
+            wsh_freight_costs        wfc
+        WHERE
+                1 = 1
+            AND wnd.delivery_id = wda.delivery_id
+            AND wda.delivery_detail_id = wdd.delivery_detail_id
+            AND wdd.source_line_id = oel.line_id
+            AND wdd.source_header_id = oeh.header_id
+            AND msi.inventory_item_id = oel.inventory_item_id
+            AND msi.organization_id = oel.ship_from_org_id
+            AND msi.organization_id = mp.organization_id
+            AND oeh.ship_to_org_id = hcs_ship.site_use_id
+            AND hcs_ship.cust_acct_site_id = hca_ship.cust_acct_site_id
+            AND hca_ship.party_site_id = hps_ship.party_site_id
+            AND hps_ship.party_id = hp_ship.party_id
+            AND hps_ship.location_id = hl_ship.location_id
+            AND oeh.invoice_to_org_id = hcs_bill.site_use_id
+            AND hcs_bill.cust_acct_site_id = hca_bill.cust_acct_site_id
+            AND hca_bill.party_site_id = hps_bill.party_site_id
+            AND hps_bill.party_id = hp_bill.party_id
+            AND hps_bill.location_id = hl_bill.location_id
+            AND wcs.ship_method_code = oeh.shipping_method_code
+            AND wfc.delivery_id = wda.delivery_id
+            AND oeh.order_number = '4469926'
+    )
+WHERE
+    deliverylinenumber = 1
